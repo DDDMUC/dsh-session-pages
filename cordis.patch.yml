@@ -1,0 +1,13 @@
+# dsh-session-pages bundle patch.
+#
+# One row. The name is the BARE package name on purpose: the client-module
+# scanner resolves <name>/package.json to find the dsh.client declaration, so a
+# subpath entry would be cached as "not a client package" and the browser half
+# would never load.
+#
+# The node half serves the loopback-only GET /dsh-session-pages/state route,
+# which folds one session log into windows. The browser half registers the
+# "windows" conversation view tab.
+- insert:
+    - id: dsh-session-pages
+      name: 'dsh-session-pages'
