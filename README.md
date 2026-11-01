@@ -15,7 +15,7 @@ DeepSeek Harness 的第四个对话视图标签：**窗口**（在「对话 / �
 | 系统提示词 | `system/message` / `developer/message` | 只有会话开头那一条；后续窗口标「沿用上一窗」 |
 | 工具声明 | `request/header` 的 `tools[]` | 只取名字；个数随插件增减，各窗可能不同 |
 | 开窗摘要 | checkpoint 的 `<compacted-summary>` | 折叠显示，点开看全文 |
-| 保留尾部 | 平台规则 | 只说事实：上一窗末尾原样保留、排在摘要之后；**确切范围不随日志记录**，所以不编数字 |
+| 保留尾部 | checkpoint 事件的 `surfaceOp` | 报替换区间与尾部消息条数；实际重发集合未逐条记录，所以只报区间与计数 |
 
 **行（rows）—— 这一窗自己的时间线**
 
