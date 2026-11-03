@@ -23,7 +23,7 @@
 //   * it replaces the older range and is FOLLOWED by the retained recent units.
 
 export const PLUGIN_ID = 'dsh-session-pages'
-export const VERSION = '0.5.0'
+export const VERSION = '0.5.2'
 export const ROUTE_PREFIX = '/dsh-session-pages'
 export const VIEW_ID = 'windows'
 export const VIEW_ORDER = 30
