@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
     const react = require('react')
 
     const NS = 'dsh-session-pages'
-    const VERSION = '0.4.4'
+    const VERSION = '0.5.0'
     const ROUTE_PREFIX = '/dsh-session-pages'
     const VIEW_ID = 'windows'
     const VIEW_ORDER = 30

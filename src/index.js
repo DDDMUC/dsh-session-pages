@@ -12,10 +12,14 @@
 // with the live Session's snapshot as the fallback, so the shapes this plugin
 // reasons about are the ones the runtime actually validated.
 import {
+  windowProjection,
+} from './projection.js'
+import {
   PLUGIN_ID,
   VERSION,
   ROUTE_PREFIX,
   buildPages,
+  clipText,
   isSessionId,
   messageOf,
   reasoningOf,
@@ -25,6 +29,9 @@ import {
 
 export const name = PLUGIN_ID
 export const version = VERSION
+// The projection registry drives one fold per live session; without this
+// declaration cordis would hand the plugin an empty registry.
+export const inject = ['sessionProjections']
 
 class HttpError extends Error {
   constructor(status, code, message) {
@@ -61,6 +68,99 @@ function eventsFromLive(session) {
     return undefined
   }
   return undefined
+}
+
+
+/**
+ * Turn one projection state into the payload the view already understands.
+ *
+ * Only the per-window SUMMARY comes from the projection. `retainedTail` needs a
+ * per-kind count over a seq range, which a fold cannot answer without the events,
+ * so that one row is still derived from the log - and the log for a live session
+ * is already in memory.
+ */
+function stateFromProjection(projection, events, options) {
+  const pages = projection.pages.map((page) => {
+    const context = {}
+    if (page.systemChars > 0) {
+      context.system = {
+        present: true,
+        inherited: page.systemInherited === true,
+        chars: page.systemChars,
+        preview: clipText(page.systemText, options.clipChars).text,
+        full: page.systemText,
+      }
+    }
+    if (Array.isArray(page.toolNames)) {
+      context.tools = {
+        names: page.toolNames,
+        count: page.toolNames.length,
+        source: 'request-header',
+        inherited: false,
+      }
+    }
+    context.preset = { id: projection.presetId, switches: [] }
+    if (page.index > 1) {
+      context.checkpoint = {
+        compactionId: page.compactionId,
+        chars: page.summaryChars,
+        preview: clipText(page.summary, options.clipChars).text,
+        replacedFrom: page.replacedFrom,
+        replacedTo: page.replacedTo,
+      }
+      if (page.replacedTo !== null && events !== null) {
+        let events2 = 0
+        const byKind = { user: 0, assistant: 0, toolResult: 0 }
+        for (const event of events) {
+          const seq = Number(event.seq)
+          if (Number.isSafeInteger(seq) === false) continue
+          if (seq <= page.replacedTo || seq >= page.startSeq) continue
+          events2 += 1
+          if (event.type === 'user/message') byKind.user += 1
+          else if (event.type === 'assistant/message') byKind.assistant += 1
+          else if (event.type === 'tool/result') byKind.toolResult += 1
+        }
+        context.retainedTail = {
+          fromSeq: page.replacedTo + 1,
+          toSeq: page.startSeq - 1,
+          events: events2,
+          messages: byKind.user + byKind.assistant + byKind.toolResult,
+          byKind,
+          replacedFrom: page.replacedFrom,
+          replacedTo: page.replacedTo,
+        }
+      }
+    }
+    return {
+      index: page.index,
+      startSeq: page.startSeq,
+      compactionId: page.compactionId,
+      summary: page.summary,
+      summaryChars: page.summaryChars,
+      turnFrom: page.turnFrom,
+      turnTo: page.turnTo,
+      steps: page.steps,
+      messages: page.messages,
+      toolCalls: page.toolCalls,
+      peakTokens: page.peakTokens,
+      itemCount: page.itemCount,
+      context,
+    }
+  })
+  const peak = pages.reduce((max, page) => (page.peakTokens === null ? max : Math.max(max, page.peakTokens)), 0)
+  return {
+    pages,
+    totals: {
+      pages: pages.length,
+      turns: pages.reduce((max, page) => (page.turnTo === null ? max : Math.max(max, page.turnTo)), 0),
+      steps: pages.reduce((sum, page) => sum + page.steps, 0),
+      messages: pages.reduce((sum, page) => sum + page.messages, 0),
+      peakTokens: peak === 0 ? null : peak,
+      checkpointChars: pages.reduce((sum, page) => sum + page.summaryChars, 0),
+      items: pages.reduce((sum, page) => sum + page.itemCount, 0),
+      droppedItems: 0,
+    },
+  }
 }
 
 /** Live-preferred read through the public query service. */
@@ -182,6 +282,12 @@ function failure(res, error) {
 
 export function apply(ctx, config = {}) {
   const resolved = resolveConfig(config)
+  // Declared in `inject`, so the registry is present before the first step.
+  const projections = ctx.sessionProjections
+  ctx.effect(
+    () => projections.register(windowProjection),
+    PLUGIN_ID + ': window projection',
+  )
 
   const registerRoutes = (webServer, fiber) => {
     fiber.effect(() =>
@@ -205,7 +311,15 @@ export function apply(ctx, config = {}) {
               : resolved.options
             const events = await readEvents(ctx, sessionId)
             if (events === null) throw new HttpError(404, 'session-not-found', 'no session log for this id')
-            const folded = buildPages(events, options)
+            // A live session already carries a driven projection: read it instead
+            // of folding the log again. Closed sessions have no cell, so they keep
+            // the fold (the decode is cached).
+            const forceFold = (params.get('fold') || '') === '1'
+            const liveSession = forceFold ? undefined : findLiveSession(ctx, sessionId)
+            const projected = liveSession === undefined ? undefined : projections.stateOf(liveSession, windowProjection.key)
+            const folded = projected === undefined
+              ? buildPages(events, options)
+              : stateFromProjection(projected, events, options)
             sendJson(res, 200, {
               ok: true,
               sessionId,
