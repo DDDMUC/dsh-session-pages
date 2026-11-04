@@ -15,6 +15,7 @@
 
 const FIRST_PAGE = () => ({
   index: 1,
+  createdAt: null,
   startSeq: 0,
   compactionId: null,
   summary: '',
@@ -84,6 +85,11 @@ export const windowProjection = {
   apply: (state, event) => {
     const pages = state.pages.slice()
     const last = pages[pages.length - 1]
+    // Window 1 is born with the session: the first event that carries a time
+    // stamps it, because the session header is not part of this event stream.
+    if (last.createdAt === null && Number.isFinite(event.time)) {
+      pages[pages.length - 1] = { ...last, createdAt: event.time }
+    }
 
     if (event.type === 'user/message') {
       const source = event.data === undefined ? undefined : event.data.source
@@ -98,6 +104,7 @@ export const windowProjection = {
         next.summary = summary
         next.summaryChars = summary.length
         const op = event.surfaceOp
+        next.createdAt = Number.isFinite(event.time) ? event.time : null
         next.replacedFrom = Number.isSafeInteger(op && op.startSeq) ? op.startSeq : null
         next.replacedTo = Number.isSafeInteger(op && op.endSeq) ? op.endSeq : null
         next.systemChars = last.systemChars

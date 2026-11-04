@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
     const react = require('react')
 
     const NS = 'dsh-session-pages'
-    const VERSION = '0.5.2'
+    const VERSION = '0.5.4'
     const ROUTE_PREFIX = '/dsh-session-pages'
     const VIEW_ID = 'windows'
     const VIEW_ORDER = 30
@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
       'head.empty': '这个会话还没有任何事件。',
       'page.title': '第 {n} 窗',
       'page.origin': '会话开头',
+      'page.born': '始于 {time}',
       'page.compacted': '压缩于第 {turn} 轮',
       'page.meta': '第 {from}–{to} 轮 · {steps} 次请求 · {messages} 条消息 · {tools} 次工具调用 · 峰值 {peak} token',
       'page.boundary': '本窗从这里开始 · 第 {from}–{to} 轮 · {steps} 次请求 · {messages} 条消息 · {tools} 次工具调用 · 峰值 {peak}',
@@ -135,6 +136,16 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Local wall-clock stamp for a window's opening event. */
+    function formatTime(ms) {
+      if (typeof ms !== 'number' || Number.isFinite(ms) === false) return null
+      const date = new Date(ms)
+      if (Number.isNaN(date.getTime())) return null
+      const pad = (n) => String(n).padStart(2, '0')
+      return String(date.getFullYear()) + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+        + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes())
+    }
+
     function formatCount(value) {
       if (value === null || value === undefined) return '—'
       if (value >= 10000) return (value / 10000).toFixed(1) + '万'
@@ -162,6 +173,7 @@ window.__ModuleLoader__.load({
 .dspsp-page.is-current{border-color:var(--dsw-alias-border-l3,rgba(127,127,127,.4))}
 .dspsp-page-head{display:flex;align-items:baseline;gap:8px;padding:10px 14px 8px;flex-wrap:wrap}
 .dspsp-page-title{font-size:14px;line-height:22px;font-weight:600}
+.dspsp-page-born{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,.9));font-variant-numeric:tabular-nums}
 .dspsp-tag{font-size:11px;line-height:16px;padding:0 6px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,rgba(127,127,127,.14));color:var(--dsw-alias-state-warn-label,#8a5a00);border:1px solid var(--dsw-alias-border-l3,rgba(127,127,127,.32))}
 .dspsp-page-origin{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,.9))}
 .dspsp-page-meta{padding:2px 14px 6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,.95))}
@@ -821,6 +833,13 @@ window.__ModuleLoader__.load({
           react.createElement('span', { key: 't', className: 'dspsp-page-title' },
             formatText(t('page.title'), { n: page.index })),
           tag,
+          typeof page.startTime === 'number'
+            ? react.createElement('span', {
+                key: 'b',
+                className: 'dspsp-page-born',
+                title: new Date(page.startTime).toLocaleString(),
+              }, formatText(t('page.born'), { time: formatTime(page.startTime) }))
+            : null,
         ]),
         react.createElement(FrameBlock, { key: 'f', page, controller: props.controller, t }),
         page.summaryChars > 0

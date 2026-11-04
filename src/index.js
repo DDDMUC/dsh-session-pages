@@ -79,6 +79,21 @@ function eventsFromLive(session) {
  * so that one row is still derived from the log - and the log for a live session
  * is already in memory.
  */
+/** The timestamp of the event that opens this window. */
+function timeAtStart(page, events) {
+  if (Number.isFinite(page.createdAt) && page.index > 1) return page.createdAt
+  if (Array.isArray(events) === false) return Number.isFinite(page.createdAt) ? page.createdAt : null
+  if (page.index === 1) {
+    for (const event of events) {
+      if (Number.isFinite(event.time)) return event.time
+    }
+    return null
+  }
+  const opening = events.find((event) => Number(event.seq) === page.startSeq)
+  if (opening !== undefined && Number.isFinite(opening.time)) return opening.time
+  return Number.isFinite(page.createdAt) ? page.createdAt : null
+}
+
 function stateFromProjection(projection, events, options) {
   const pages = projection.pages.map((page) => {
     const context = {}
@@ -133,6 +148,10 @@ function stateFromProjection(projection, events, options) {
     }
     return {
       index: page.index,
+      // A window is born with the event that opens it: window 1 with the log's
+      // first event (which may be inherited history), later ones with their
+      // checkpoint. Read it from the events when the projection cannot know.
+      startTime: timeAtStart(page, events),
       startSeq: page.startSeq,
       compactionId: page.compactionId,
       summary: page.summary,
