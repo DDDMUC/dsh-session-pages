@@ -11,6 +11,9 @@
 // Events come from the official query service (ctx.get('sessionQuery')),
 // with the live Session's snapshot as the fallback, so the shapes this plugin
 // reasons about are the ones the runtime actually validated.
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   windowProjection,
 } from './projection.js'
@@ -79,6 +82,37 @@ function eventsFromLive(session) {
  * so that one row is still derived from the log - and the log for a live session
  * is already in memory.
  */
+
+/**
+ * The optional `dsh-log-trim` ledger: how much log rewriting already happened to
+ * this session. Read-only, best-effort, and never a dependency - a missing file
+ * or broken JSON is simply "no record".
+ */
+const TRIM_LEDGER = path.join(os.homedir(), '.dsh', 'dsh-log-trim', 'ledger.json')
+
+function readTrimLedger(sessionId) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(TRIM_LEDGER, 'utf8'))
+    if (parsed === null || typeof parsed !== 'object' || parsed.version !== 1) return null
+    const sessions = parsed.sessions
+    if (sessions === null || typeof sessions !== 'object') return null
+    const bare = sessionId.replace(/^session-/, '')
+    const entry = sessions[sessionId] || sessions[bare] || sessions['session-' + bare]
+    if (entry === undefined || entry === null || typeof entry !== 'object') return null
+    const totals = entry.totals === null || entry.totals === undefined ? {} : entry.totals
+    const trims = Array.isArray(entry.trims) ? entry.trims : []
+    return {
+      windowsRemoved: Number(totals.windowsRemoved) || 0,
+      eventsRemoved: Number(totals.eventsRemoved) || 0,
+      bytesSaved: Number(totals.bytesSaved) || 0,
+      lastAt: typeof totals.lastAt === 'string' ? totals.lastAt : null,
+      trims: trims.slice(-5),
+    }
+  } catch (error) {
+    return null
+  }
+}
+
 /** The timestamp of the event that opens this window. */
 function timeAtStart(page, events) {
   if (Number.isFinite(page.createdAt) && page.index > 1) return page.createdAt
@@ -345,6 +379,7 @@ export function apply(ctx, config = {}) {
               version: VERSION,
               viewId: 'windows',
               unknownConfig: resolved.unknown,
+              trim: readTrimLedger(sessionId),
               ...folded,
             })
           } catch (error) {

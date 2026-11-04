@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-pages",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "description": "Fourth conversation view for DeepSeek Harness: the session split into windows at every compaction, each window headed by its checkpoint summary.",
   "type": "module",
   "main": "src/index.js",

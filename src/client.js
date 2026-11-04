@@ -22,7 +22,7 @@ window.__ModuleLoader__.load({
     const react = require('react')
 
     const NS = 'dsh-session-pages'
-    const VERSION = '0.5.4'
+    const VERSION = '0.5.6'
     const ROUTE_PREFIX = '/dsh-session-pages'
     const VIEW_ID = 'windows'
     const VIEW_ORDER = 30
@@ -32,6 +32,8 @@ window.__ModuleLoader__.load({
       'view.windows': '窗口',
       'head.title': '{pages} 个窗口',
       'head.meta': '{turns} 轮 · {steps} 步 · {items} 条 · 峰值 {peak}',
+      'head.trim': '累计裁掉 {windows} 窗 / {events} 条',
+      'head.trimNone': '未裁剪',
       'head.loading': '正在读取会话…',
       'head.failed': '读取失败：{error}',
       'head.empty': '这个会话还没有任何事件。',
@@ -82,6 +84,8 @@ window.__ModuleLoader__.load({
       'view.windows': 'Windows',
       'head.title': '{pages} window(s)',
       'head.meta': '{turns} turns · {steps} steps · {items} items · peak {peak}',
+      'head.trim': '{windows} windows / {events} events trimmed away',
+      'head.trimNone': 'no trimming',
       'head.loading': 'Reading the session…',
       'head.failed': 'Read failed: {error}',
       'head.empty': 'This session has no events yet.',
@@ -167,6 +171,7 @@ window.__ModuleLoader__.load({
 .dspsp-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .dspsp-head-title{font-size:14px;line-height:22px;font-weight:600}
 .dspsp-head-meta{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,.95))}
+.dspsp-head-trim{font-size:11px;line-height:16px;padding:0 6px;border-radius:4px;border:1px solid var(--dsw-alias-border-l3,rgba(127,127,127,.3));color:var(--dsw-alias-label-secondary,inherit);cursor:help}
 
 /* ---- one window --------------------------------------------------------- */
 .dspsp-page{border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.25));border-radius:10px;background:var(--dsw-alias-bg-layer-1,transparent);overflow:hidden}
@@ -424,6 +429,21 @@ window.__ModuleLoader__.load({
       react.useEffect(() => controller.attach(), [controller])
 
       const summary = state.summary
+      // Optional: how much of this log dsh-log-trim already rewrote. Absent when
+      // the package is not installed, the session has no record, or nothing was
+      // removed - in every case the header simply does not mention it.
+      const trim = summary === null || summary.trim === undefined ? null : summary.trim
+      const trimNote = trim === null
+        ? null
+        : (trim.windowsRemoved > 0 || trim.eventsRemoved > 0)
+            ? {
+                text: formatText(t('head.trim'), {
+                  windows: formatCount(trim.windowsRemoved),
+                  events: formatCount(trim.eventsRemoved),
+                }),
+                title: trimTooltip(trim),
+              }
+            : null
       const head = react.createElement(
         'div',
         { className: 'dspsp-head' },
@@ -438,6 +458,12 @@ window.__ModuleLoader__.load({
                 items: summary.totals.items,
                 peak: formatCount(summary.totals.peakTokens),
               })),
+        trimNote === null
+          ? null
+          : react.createElement('span', {
+              className: 'dspsp-head-trim',
+              title: trimNote.title,
+            }, trimNote.text),
       )
 
       const children = [head]
@@ -863,6 +889,33 @@ window.__ModuleLoader__.load({
     }
 
     // --- plugin ----------------------------------------------------------------
+
+    const TRIM_MODES = {
+      window: '裁窗口',
+      flatten: '折叠痕迹',
+      stream: '清流式回放',
+      lossless: '清理已遮蔽事件',
+      rebuild: '按表面重建',
+    }
+
+    /** "最近一次 2026-11-04 12:57（裁窗口，3→2 窗）" */
+    function trimTooltip(trim) {
+      const last = Array.isArray(trim.trims) && trim.trims.length > 0 ? trim.trims[trim.trims.length - 1] : null
+      const parts = []
+      if (last !== null && typeof last.at === 'string') {
+        const when = formatTime(Date.parse(last.at))
+        if (when !== null) parts.push('最近一次 ' + when)
+        const mode = TRIM_MODES[last.mode] || last.mode
+        const span = last.windowsBefore !== undefined && last.windowsAfter !== undefined
+          ? '，' + String(last.windowsBefore) + '→' + String(last.windowsAfter) + ' 窗'
+          : ''
+        if (typeof mode === 'string' && mode.length > 0) parts.push('（' + mode + span + '）')
+      }
+      if (Number.isFinite(trim.bytesSaved) && trim.bytesSaved > 0) {
+        parts.push('已省 ' + formatCount(trim.bytesSaved) + ' 字节')
+      }
+      return parts.filter((part) => part.length > 0).join(' · ')
+    }
 
     function registerView(slots, controllerFor, t) {
       slots.inject('conversation.view', () =>
