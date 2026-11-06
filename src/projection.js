@@ -27,6 +27,9 @@ const FIRST_PAGE = () => ({
   systemText: '',
   systemInherited: false,
   toolNames: null,
+  // Visible dialogue rows (~user/assistant). Settings-only prefixes stay 0 and
+  // are folded into the first checkpoint window by the reader.
+  dialogue: 0,
   turnFrom: null,
   turnTo: null,
   steps: 0,
@@ -117,8 +120,10 @@ export const windowProjection = {
       // rows are rows, not messages, except the checkpoint above.
       // The fold draws a row only when there is text to draw; a message that
       // carries nothing but an attachment still counts as a message, not a row.
-      const rendered = textOfMessage(messageOf(event)).length > 0 ? 1 : 0
+      const text = textOfMessage(messageOf(event))
+      const rendered = text.length > 0 ? 1 : 0
       const page = addToPage(last, {
+        dialogue: last.dialogue + (rendered > 0 && (kind === 'user' || kind === undefined) ? 1 : 0),
         itemCount: last.itemCount + rendered,
         messages: last.messages + 1,
       })
@@ -138,6 +143,7 @@ export const windowProjection = {
       const text = textOfMessage(message)
       const page = {
         ...last,
+        dialogue: last.dialogue + 1,
         steps: last.steps + 1,
         messages: last.messages + 1,
         toolCalls: last.toolCalls + toolCalls,

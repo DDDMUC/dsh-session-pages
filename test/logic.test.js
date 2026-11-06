@@ -209,3 +209,75 @@ test('session ids are validated', () => {
   assert.equal(isSessionId('1234abcd'), false)
   assert.equal(isSessionId('session-'), false)
 })
+
+// --- a trimmed log must not count its settings prefix as a window -----------
+
+test('a settings-only prefix is folded into the first checkpoint window', () => {
+  // Trimmed shape: settings + two checkpoints, no dialogue before the first one.
+  const events = [
+    at(1, 1001, 'permission/preset', { preset: 'standard' }),
+    at(2, 1002, 'sandbox/mode', { mode: 'workspace-write' }),
+    injection(3, 'runtime-context', 'Current runtime context.'),
+    checkpoint(10, 'cmp-1', 'first summary', { op: 'replace', startSeq: 4, endSeq: 9 }),
+    at(11, 1011, 'system/message', { role: 'system', content: [{ type: 'text', text: 'You are an agent.' }] }),
+    human(12, 1, 'hello'),
+    at(20, 1020, 'assistant/message', {
+      role: 'assistant', turn: 1, step: 1,
+      content: [{ type: 'text', text: 'hi' }],
+      usage: { totalTokens: 100 },
+    }),
+    checkpoint(30, 'cmp-2', 'second summary', { op: 'replace', startSeq: 10, endSeq: 29 }),
+    human(31, 2, 'again'),
+    at(40, 1040, 'assistant/message', {
+      role: 'assistant', turn: 2, step: 1,
+      content: [{ type: 'text', text: 'yes' }],
+      usage: { totalTokens: 120 },
+    }),
+  ]
+  const result = buildPages(events)
+  assert.equal(result.pages.length, 2)
+  assert.equal(result.totals.pages, 2)
+  // The window that opens the list carries the frame itself.
+  assert.equal(result.pages[0].context.system.present, true)
+  assert.equal(result.pages[0].context.system.inherited, false)
+  assert.equal(result.pages[0].index, 1)
+  assert.equal(result.pages[1].index, 2)
+})
+
+test('a prefix that still holds dialogue stays a window of its own', () => {
+  const events = [
+    injection(1, 'runtime-context', 'Current runtime context.'),
+    human(2, 1, 'still here'),
+    at(3, 1003, 'assistant/message', {
+      role: 'assistant', turn: 1, step: 1,
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { totalTokens: 50 },
+    }),
+    checkpoint(10, 'cmp-1', 'summary', { op: 'replace', startSeq: 4, endSeq: 9 }),
+    human(11, 2, 'after'),
+    at(12, 1012, 'assistant/message', {
+      role: 'assistant', turn: 2, step: 1,
+      content: [{ type: 'text', text: 'yep' }],
+      usage: { totalTokens: 60 },
+    }),
+  ]
+  const result = buildPages(events)
+  assert.equal(result.pages.length, 2)
+  assert.equal(result.pages[0].compactionId, null)
+})
+
+test('a session with no checkpoint is still one window', () => {
+  const events = [
+    at(1, 1001, 'permission/preset', { preset: 'standard' }),
+    injection(2, 'runtime-context', 'Current runtime context.'),
+    human(3, 1, 'first'),
+    at(4, 1004, 'assistant/message', {
+      role: 'assistant', turn: 1, step: 1,
+      content: [{ type: 'text', text: 'reply' }],
+      usage: { totalTokens: 10 },
+    }),
+  ]
+  const result = buildPages(events)
+  assert.equal(result.pages.length, 1)
+  assert.equal(result.totals.pages, 1)
+})

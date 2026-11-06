@@ -38,7 +38,7 @@ function loadClient() {
 test('the bundle registers the windows view beside chat and trajectory', async () => {
   const exports = await loadClient()
   assert.equal(typeof exports.apply, 'function')
-  assert.equal(exports.version, '0.5.6')
+  assert.equal(exports.version, '0.5.7')
 
   const registered = []
   const slots = {

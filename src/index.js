@@ -129,12 +129,21 @@ function timeAtStart(page, events) {
 }
 
 function stateFromProjection(projection, events, options) {
-  const pages = projection.pages.map((page) => {
+  // A trimmed log opens with a settings-only prefix; it is not a window. Same
+  // rule as the fold: keep it only when it actually holds dialogue.
+  const first = projection.pages.length > 1 ? projection.pages[0] : undefined
+  const folded = first !== undefined && first.compactionId === null && (first.dialogue || 0) === 0
+  const source = folded
+    ? projection.pages.slice(1).map((page, index) => ({ ...page, index: index + 1 }))
+    : projection.pages
+  const pages = source.map((page, position) => {
     const context = {}
     if (page.systemChars > 0) {
       context.system = {
         present: true,
-        inherited: page.systemInherited === true,
+        // The window that now opens the list owns the frame, even though the
+        // events carrying it sat in the dropped prefix.
+        inherited: folded === true && position === 0 ? false : page.systemInherited === true,
         chars: page.systemChars,
         preview: clipText(page.systemText, options.clipChars).text,
         full: page.systemText,

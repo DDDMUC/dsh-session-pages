@@ -23,7 +23,7 @@
 //   * it replaces the older range and is FOLLOWED by the retained recent units.
 
 export const PLUGIN_ID = 'dsh-session-pages'
-export const VERSION = '0.5.6'
+export const VERSION = '0.5.7'
 export const ROUTE_PREFIX = '/dsh-session-pages'
 export const VIEW_ID = 'windows'
 export const VIEW_ORDER = 30
@@ -131,6 +131,42 @@ export function isCheckpoint(event) {
   if (event === null || typeof event !== 'object' || event.type !== 'user/message') return false
   const source = event.data === null || event.data === undefined ? undefined : event.data.source
   return source !== null && source !== undefined && source.kind === CHECKPOINT_KIND
+}
+
+
+/** True when the window holds at least one visible dialogue message. */
+function windowHasDialogue(sorted, page) {
+  const from = page.startSeq
+  const to = page.endSeq === null ? Number.POSITIVE_INFINITY : page.endSeq
+  for (const event of sorted) {
+    const seq = Number(event.seq) || 0
+    if (seq < from) continue
+    if (seq > to) break
+    if (event.type === 'assistant/message') return true
+    if (event.type === 'user/message' && isHumanUserMessage(event)) return true
+  }
+  return false
+}
+
+/**
+ * Drop a leading window that holds nothing but settings.
+ *
+ * A trimmed log starts with a prefix of system/settings events and no dialogue.
+ * Splitting windows at checkpoints would count that prefix as "window 1", so
+ * "2 windows kept" reads as 3. The rule:
+ *
+ *   - fewer than two windows          -> keep as is (a fresh session is 1 window);
+ *   - first window has a checkpoint   -> it IS a conversation window, keep it;
+ *   - prefix holds visible dialogue   -> the trim did not clear it, keep it;
+ *   - otherwise                       -> drop it, renumber, and let the first
+ *                                        checkpoint window carry the frame.
+ */
+export function collapseLeadingSettingsPrefix(sorted, pages) {
+  if (pages.length < 2) return pages
+  const first = pages[0]
+  if (first.compactionId !== null) return pages
+  if (windowHasDialogue(sorted, first) === true) return pages
+  return pages.slice(1).map((page, index) => ({ ...page, index: index + 1 }))
 }
 
 export function isHumanUserMessage(event) {
@@ -401,10 +437,29 @@ export function buildPages(events, options = {}) {
     }
   }
 
+  // 2b. A settings-only prefix is not a window of its own.
+  const withoutPrefix = collapseLeadingSettingsPrefix(sorted, pages)
+  let floorSeq = 0
+  if (withoutPrefix !== pages) {
+    pages.length = 0
+    for (const page of withoutPrefix) pages.push(page)
+    // The prefix's system prompt and tool roster now belong to this window, so
+    // it no longer inherits them from a window that is not shown.
+    if (pages[0].context.system !== null && pages[0].context.system.present === true) {
+      pages[0].context.system.inherited = false
+    }
+    if (pages[0].context.tools !== null && pages[0].context.tools.count > 0) {
+      pages[0].context.tools.inherited = false
+    }
+    floorSeq = pages[0].startSeq
+  }
+
   // 3. The window's own timeline.
   let dropped = 0
   for (const event of sorted) {
     const seq = Number(event.seq) || 0
+    // Events before the first shown window belong to the dropped prefix.
+    if (seq < floorSeq) continue
     const page = pageForSeq(seq)
     const time = Number(event.time)
     if (Number.isFinite(time)) {
