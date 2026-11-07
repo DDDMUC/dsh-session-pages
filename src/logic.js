@@ -134,18 +134,58 @@ export function isCheckpoint(event) {
 }
 
 
-/** True when the window holds at least one visible dialogue message. */
-function windowHasDialogue(sorted, page) {
-  const from = page.startSeq
-  const to = page.endSeq === null ? Number.POSITIVE_INFINITY : page.endSeq
+/**
+ * Every seq the log has already dropped from the model's view.
+ *
+ * Trimming records what it shadowed on the compaction events: `shadowedSeqs` for
+ * the individual rows and `shadowedRange` for the span a compaction replaced.
+ * Regular events carry `surfaceOp: "append"` and say nothing about visibility.
+ */
+function shadowedSeqs(sorted) {
+  const covered = new Set()
+  for (const event of sorted) {
+    // A checkpoint states its surface operation directly; compaction records it
+    // under `data`.
+    const op = event.surfaceOp
+    if (op !== null && op !== undefined && typeof op === 'object'
+      && Number.isSafeInteger(op.startSeq) && Number.isSafeInteger(op.endSeq)) {
+      for (let seq = op.startSeq; seq <= op.endSeq; seq += 1) covered.add(seq)
+    }
+    const data = event.data
+    if (data === null || data === undefined) continue
+    const list = data.shadowedSeqs
+    if (Array.isArray(list)) {
+      for (const seq of list) if (Number.isSafeInteger(seq)) covered.add(seq)
+    }
+    const range = data.shadowedRange
+    if (range !== null && range !== undefined
+      && Number.isSafeInteger(range.start) && Number.isSafeInteger(range.end)) {
+      for (let seq = range.start; seq <= range.end; seq += 1) covered.add(seq)
+    }
+  }
+  return covered
+}
+
+/** True when [from, to] holds at least one dialogue row the model can still see. */
+export function pageHasVisibleDialogue(sorted, from, to) {
+  // A shadowed row is gone from the transcript even though it is still in the
+  // log; counting it would keep a settings-only prefix as its own window.
+  const covered = shadowedSeqs(sorted)
   for (const event of sorted) {
     const seq = Number(event.seq) || 0
     if (seq < from) continue
     if (seq > to) break
+    if (covered.has(seq)) continue
     if (event.type === 'assistant/message') return true
     if (event.type === 'user/message' && isHumanUserMessage(event)) return true
   }
   return false
+}
+
+/** True when the window holds at least one visible dialogue message. */
+function windowHasDialogue(sorted, page) {
+  const to = page.endSeq === null ? Number.POSITIVE_INFINITY : page.endSeq
+  return pageHasVisibleDialogue(sorted, page.startSeq, to)
 }
 
 /**

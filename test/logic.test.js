@@ -244,6 +244,26 @@ test('a settings-only prefix is folded into the first checkpoint window', () => 
   assert.equal(result.pages[1].index, 2)
 })
 
+test('a prefix whose only dialogue was shadowed is still folded away', () => {
+  // Real shape: the trim replaced seq 6..9, so the assistant row at 7 is gone
+  // from the transcript even though the log still holds it.
+  const events = [
+    at(1, 1001, 'permission/preset', { preset: 'standard' }),
+    at(2, 1002, 'sandbox/mode', { mode: 'workspace-write' }),
+    injection(3, 'runtime-context', 'Current runtime context.'),
+    assistant(7, 1, 'a reply the trim later dropped', 90),
+    checkpoint(10, 'cmp-1', 'first summary', { op: 'replace', startSeq: 6, endSeq: 9 }),
+    human(12, 2, 'hello'),
+    assistant(14, 2, 'hi', 100),
+    checkpoint(20, 'cmp-2', 'second summary', { op: 'replace', startSeq: 11, endSeq: 19 }),
+    human(22, 3, 'again'),
+    assistant(24, 3, 'yes', 120),
+  ]
+  const { pages } = buildPages(events)
+  assert.equal(pages.length, 2)
+  assert.equal(pages[0].startSeq, 10)
+})
+
 test('a prefix that still holds dialogue stays a window of its own', () => {
   const events = [
     injection(1, 'runtime-context', 'Current runtime context.'),

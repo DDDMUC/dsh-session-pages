@@ -22,6 +22,7 @@ import {
   VERSION,
   ROUTE_PREFIX,
   buildPages,
+  pageHasVisibleDialogue,
   clipText,
   isSessionId,
   messageOf,
@@ -132,7 +133,11 @@ function stateFromProjection(projection, events, options) {
   // A trimmed log opens with a settings-only prefix; it is not a window. Same
   // rule as the fold: keep it only when it actually holds dialogue.
   const first = projection.pages.length > 1 ? projection.pages[0] : undefined
-  const folded = first !== undefined && first.compactionId === null && (first.dialogue || 0) === 0
+  // `dialogue` counts every row the log holds, including rows a later compaction
+  // shadowed away. Ask the events instead of trusting that counter.
+  const prefixEnd = projection.pages.length > 1 ? projection.pages[1].startSeq - 1 : Number.POSITIVE_INFINITY
+  const folded = first !== undefined && first.compactionId === null
+    && pageHasVisibleDialogue(events, first.startSeq, prefixEnd) === false
   const source = folded
     ? projection.pages.slice(1).map((page, index) => ({ ...page, index: index + 1 }))
     : projection.pages
